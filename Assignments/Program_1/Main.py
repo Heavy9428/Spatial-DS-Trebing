@@ -1,3 +1,7 @@
+#Matthew Trebing
+#Spatial DS
+#6/14/17
+
 import json
 import os,sys
 import pygame
@@ -444,6 +448,10 @@ def Key__Finder(x,y,dg):
             if point_inside_polygon(x,y,poly):
                return key
 
+
+
+
+
 if __name__ == '__main__':
 
     # if there are no command line args
@@ -507,16 +515,35 @@ if __name__ == '__main__':
             if event.type == pygame.QUIT:
                 running = False
             if event.type == pygame.MOUSEBUTTONDOWN:
+
+
                 #Get the location where your mouse clicked on the screen
                 x,y = pygame.mouse.get_pos()
+
+                #Resets the Screen back to 
+                # before you clicked it to get the next Country
+                screen.fill(white)
+                gd.draw_polygons()
+                pygame.display.flip()
+                
+
                 # a holds all the adjusted polygons
                 a = gd.adjusted_polys
+
+                #list to hold all the coordinates from the
+                #given state you have selected
+                l = []
+
+                #Two Seperet lists to hold all the x and y
+                #Coordinates to then be used to calculate the min
+                #and Maxes
+                Width_Bounds =[]
+                Height_Bounds =[]
 
                  #if it is in the polygon
                  # for loop where s goes through each point in a to see
                 for s in a:
 
-                    
                     #checks to see if the point clicked 
                     # is in the polygon or not if false
                     # #nothing happens 
@@ -528,9 +555,34 @@ if __name__ == '__main__':
       
                         #gets the keys name 
                         key = Key__Finder(x,y,gd)
+
+                        #For loop to append all the coordinates stored in 
+                        #s to the new list l to then be split  into two seperate coordinates
+                        for i in s:
+                            l.append(i)
+                            xcoords,ycoords=i
+                            #Appends the x and y coordinats to either 
+                            #width or height bounds list
+                            Width_Bounds.append(xcoords)
+                            Height_Bounds.append(ycoords)
+                            #takes the min x and y to place the upper left point
+                            #of our bounding box
+                            minX = min(Width_Bounds)
+                            minY = min(Height_Bounds)
+                            #calculates the Height and the Width Line
+                            Width = max(Width_Bounds)-min(Width_Bounds)
+                            Height = max(Height_Bounds)-min(Height_Bounds)
+
                         #prints out a rect box 
                         #not around the country
-                        pygame.draw.rect(screen,black,(x,y,30,30),5)
+                        pygame.draw.rect(screen,black,(minX,minY,Width,Height),5)
+
+                        #clears the list to run
+                        #faster after ever click
+                        #not the best way to do it though
+                        l.clear()
+                        Width_Bounds.clear()
+                        Height_Bounds.clear()
 
                         #draws black border
                         pygame.draw.polygon(screen,black,s,5)
