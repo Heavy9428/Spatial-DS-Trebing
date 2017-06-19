@@ -494,7 +494,7 @@ if __name__ == '__main__':
     # Add countries and states to our drawing facade.
     # df.add_polygons(['FRA','TX','ESP','AFG','NY'])
     # df.add_polygons(['TX','NY','ME','Kenya'])
-    df.add_polygons(['USA','Spain','France','Belgium','Italy','Ireland','Scotland','Greece','Germany','Egypt','Morocco','India'])
+    df.add_polygons(['Spain','France','Belgium','Italy','Ireland','Scotland','Greece','Germany','Egypt','Morocco','India'])
 
 
     # Call draw polygons to "adjust" the regular polygons
@@ -589,4 +589,5 @@ if __name__ == '__main__':
 
                         #prints countries name to the screen
                         screen.blit(DF.render(key,0,(purple),(white)),(x,y))
+                        
             pygame.display.flip()

@@ -18,6 +18,7 @@ import sys,os
 import pprint as pp
 import read_crime_data
 import math
+DIRPATH = os.path.dirname(os.path.realpath(__file__))
 
 def calculate_mbrs(points, epsilon, min_pts):
     """
@@ -201,6 +202,7 @@ while running:
         #pygame.draw.polygon(screen, black, mbr, 2)
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
+            pygame.image.save(screen,DIRPATH+"\\all_buroughs_screen_shot.png")
             running = False
         # if event.type == pygame.MOUSEBUTTONDOWN:
         #     clean_area(screen,(0,0),width,height,(255,255,255))
