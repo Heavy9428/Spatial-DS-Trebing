@@ -1,3 +1,16 @@
+"""
+Program:
+--------
+    Program 3 - 
+
+Description:
+------------
+    Read in Json files to get a adjusted x and y 
+    coordinate to print out earthquake data to the screen
+    
+Name: Matthew Trebing
+Date: 22 June 2017
+"""
 import pygame
 import sys,os
 import json
