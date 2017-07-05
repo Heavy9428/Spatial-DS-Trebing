@@ -1,218 +1,107 @@
-import os,sys
-import math
-from pymongo import MongoClient
+import os
+import sys
+from mongo_helper import *
 import pygame
+from map_helper import *
+def mercToLL(point):
+   lng, lat = point
+   lng = lng / 256.0 * 360.0 - 180.0
+   n = math.pi - 2.0 * math.pi * lat / 256.0
+   lat = (180.0 / math.pi * math.atan(0.5 * (math.exp(n) - math.exp(-n))))
+   return (lng, lat)
 
-class mongoHelper(object):
-    def __init__(self):
-        self.client = MongoClient()
+def toLL(point):
+   x, y = point
+   y+=256
+   return mercToLL((x / 4, y / 4))
 
-    def get_features_near_me(self,collection,point,radius,earth_radius=3963.2): #km = 6371
-        """
-        Finds "features" within some radius of a given point.
-        Params:
-            collection_name: e.g airports or meteors etc.
-            point: e.g (-98.5034180, 33.9382331)
-            radius: The radius in miles from the center of a sphere (defined by the point passed in)
-        Usage:
-            mh = mongoHelper()
-            loc = (-98.5034180, 33.9382331)
-            miles = 200
-            feature_list = mh.get_features_near_me('airports', loc, miles)
-        """
-        x,y = point
+DIRPATH = os.path.dirname(os.path.realpath(__file__))
+mh = MongoHelper()
+Things = []
+Updated_List=[]
+Updated_List_dict = {}
+background_colour = (255, 255, 255)
+black = (0, 0, 0)
+red = (255, 0, 0)
+blue = (70, 173, 212)
+green = (76, 187, 23)
+(width, height) = (1024, 512)
+pygame.init()
+bg = pygame.image.load(DIRPATH + "\\1024x512.png")
+screen = pygame.display.set_mode((width, height))
+screen.fill(background_colour)
+pygame.display.set_caption('Q2, Nearest Neighbor')
+pygame.display.flip()
+
+#if everything is passed but the lat and lon
+if len(sys.argv)==7:
+   feature = sys.argv[1]
+   field = sys.argv[2]
+   field_value = int(sys.argv[3])
+   min_max = sys.argv[4]
+   max_result = int(sys.argv[5])
+   radius = int(sys.argv[6])
+#only the radius is passed
+if len(sys.argv) == 2:
+       max_result = 20
+       radius = int(sys.argv[1])
+
+#needs to stop so we can click the map
+mouse_click=False
+screen.blit(bg,(0,0))
+pygame.display.flip()
+running = True
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+            pygame.image.save(screen, DIRPATH + '/' + 'Query2.png')
+        if event.type == pygame.MOUSEBUTTONDOWN and mouse_click == False:
+            point = pygame.mouse.get_pos()
+            lon,lat = toLL(point)
+            mouse_click = True
+            print (lon,lat)
 
 
-        res = self.client['world_data'][collection].find( { 'geometry': { '$geoWithin': { '$centerSphere': [ [x, y ] , radius/earth_radius ] } }} )
+        if len(sys.argv) == 2 and mouse_click == True:
+            features = ['volcanos', 'earthquakes','meteorites']
+            for z in features:
+                Things= mh.get_features_near_me(z, (lon, lat), radius)  
+                extremes, points = change_points(Things, width, height)
+                Updated_List= adjust_location_coords(extremes, points, width,height)
+                Updated_List_dict[z]=Updated_List
+
+
+        if len(sys.argv)==7 and mouse_click ==True:
+            Things = mh.get_features_near_me(feature, (lon, lat), radius)
+            features = [feature]
+            for x in Things:
+                if type(x['properties'][field])is int:
+                    field_value = int(field_value)
+                if type(x['properties'][field]) is str:
+                    field_value=str(field_value)
+
+                if min_max == 'min':
+                    if (x['properties'][field]) > (field_value):
+                        Updated_List.append(x)
+                if min_max == 'max':
+                    if (x['properties'][field]) < (field_value):
+                        Updated_List.append(x)
+
+
+            extremes, points = change_points(Updated_List, width, height)
+            Updated_List = adjust_location_coords(extremes, points, width,height)
+            Updated_List_dict[feature]=Updated_List
+
+        if mouse_click ==True:
+            for y in features:
+                for x in Updated_List_dict[y]:
+                    if y == 'volcanos':
+                        pygame.draw.circle(screen,red,x, 2, 0)
+                    if y == 'earthquakes':
+                        pygame.draw.circle(screen,blue,x, 2, 0)
+                    if y == 'meteorites':
+                        pygame.draw.circle(screen,green,x, 2, 0)
         
-        return self._make_result_list(res)
-
-    def get_doc_by_keyword(self,collection,field_name,search_key,like=True):
-        """
-        Finds "documents" with some keyword in some field.
-        Params:
-            collection_name: e.g airports or meteors etc.
-            field_name: key name of the field to search. e.g. 'place_id' or 'magnitude' 
-            search_key: The radius in miles from the center of a sphere (defined by the point passed in)
-        Usage:
-            mh = mongoHelper()
-            feature_list = mh.get_doc_by_keyword('earthquakes','properties.type','shakemap')
-            # Returns all earthquakes that have the word 'shakemap' somewhere in the 'type' field
-        """
-        if like:
-            # This finds the records in which the field just "contains" the search_key
-            res = self.client['world_data'][collection].find(({field_name : {'$regex' : ".*"+search_key+".*"}}))
-        else:
-            # This finds the records in which the field is equal to the search_key
-            res = self.client['world_data'][collection].find({field_name : search_key})
-
-        return self._make_result_list(res)
-
-
-    def get_feature_in_poly(self,collection,poly):
-        """
-        Get features that are "in" a polygon
-        Params:
-            collection_name: e.g airports or meteors etc.
-            poly: geojson polygon
-        Usage:
-            mh = mongoHelper()
-            feature_list = mh.get_feature_in_poly('airports',country['coordinates'])
-            # Returns all airports in the given country polygon.
-        """
-        res = self.client['world_data'][collection].find( { 'geometry' : { '$geoWithin' : { '$geometry' : {'type': "Polygon", 'coordinates': poly }} } })
-
-        print(dir(res))
-        print(res.count())
-        sys.exit()
-        return self._make_result_list(res)
-
-    def get_poly_by_point(self,collection,point):
-        """
-        Get a polygon that a point is within
-        Params:
-            collection_name: e.g airports or meteors etc.
-            point: geojson point
-        Usage:
-            mh = mongoHelper()
-            feature_list = mh.get_poly_by_point('countries',[44.2968750,24.6669864])
-            # Returns the country that point([44.2968750,24.6669864]) is within (Saudi Arabia)
-        """
-        return self.client['world_data'][collection].find_one({'geometry':{'$geoIntersects':{'$geometry':{ "type" : "Point","coordinates" : point }}}})
-
-    def _make_result_list(self,res):
-        """
-        private method to turn a pymongo result into a list
-        """
-        res_list = []
-        for r in res:
-            res_list.append(r)
-
-        return res_list
-
-    def get_state_poly(self,state):
-        """
-        Send in a state name (e.g. Texas) or code (e.g. tx) and it returns the geometry
-        """
-        state = state.lower()
-        if len(state) == 2:
-            field = 'properties.code'
-        else:
-            state = state.capitalize()
-            field = 'properties.name'
-
-        state_poly = self.client['world_data']['states'].find_one({field : state})
-        return state_poly['geometry']
-
-    def get_country_poly(self,key):
-        """
-        Send in a country name (e.g. Belarus) or code (e.g. BLR) and it returns the geometry
-        """
-        if len(key) == 3:
-            country_poly = self.client['world_data']['countries'].find_one({'properties.ISO_A3' : key})
-        return country_poly['geometry']
-
-    def _haversine(self,lon1, lat1, lon2, lat2):
-        """
-        Calculate the great circle distance between two points 
-        on the earth (specified in decimal degrees)
-        """
-        # convert decimal degrees to radians 
-        lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-
-        # haversine formula 
-        dlon = lon2 - lon1 
-        dlat = lat2 - lat1 
-        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-        c = 2 * asin(sqrt(a)) 
-        r = 3956 # Radius of earth in kilometers. Use 6371 for km
-        return c * r
-
-def run_tests():
-    """
-    Ok, not really "tests" but mostly just exmaples....
-    """
-    mh = mongoHelper()
-
-    print("Getting airports near within 200 miles of: (-98.5034180, 33.9382331)")
-    res = mh.get_features_near_me('airports',(-98.5034180, 33.9382331),200)
-    print("Found %d airports" % len(res))
-    print("")
-
-    print("Getting countries that have 'High income' in the INCOME_GRP field.")
-    res = mh.get_doc_by_keyword('countries','properties.INCOME_GRP','High income')
-    print("Found %d countries" % len(res))
-    print("")
-
-    print("Getting earthquakes that had a magnitude of 5.5 (not a partial match like above), and don't pass in 5.5 as a string!")
-    res = mh.get_doc_by_keyword('earthquakes','properties.mag',5.5,False)
-    print("Found %d earthquakes" % len(res))
-    print("")
-
-    print("Getting a state polygon.")
-    state = mh.get_state_poly('co')
-    print("Found %d polygon in the result." % len(state['coordinates']))
-    print("")
-
-############################################
-# Not 100% for those below. Going for beer, will work again tomorrow.
-
-    print("Getting all airports within the state poly from the previous query.")
-    res = mh.get_feature_in_poly('airports',state['coordinates'])
-    print("Found %d airports in the polygon." % len(res))
-    print("")
-   
-    country = mh.get_country_poly('DEU')
-
-    print("Getting all airports within the country poly from the previous query.")
-    res = mh.get_feature_in_poly('airports',country['coordinates'])
-    print("Found %d airports in the polygon." % len(res))
-    print("")
-
-    res = mh.get_feature_in_poly('airports',country['coordinates'])
-    print(len(res))
-
-    res = mh.get_poly_by_point('countries',[44.2968750,24.6669864])
-    print(res)
-
-
-def mercator_projection(latlng,zoom=0,tile_size=256):
-    x = (latlng[0] + 180) / 360 * tile_size
-    y = ((1 - math.log(math.tan(latlng[1] * math.pi / 180) + 1 / math.cos(latlng[1] * math.pi / 180)) / math.pi) / 2 * pow(2, 0)) * tile_size
-   
-    return (x,y)
-
-
-
-if __name__=='__main__':
-    DIRPATH = os.path.dirname(os.path.realpath(__file__))
-    mh = mongoHelper()
-    height = 512
-    width = 1024
-    background_colour = (255,255,255)
-    pygame.init()
-    bg=pygame.image.load(DIRPATH +"\\World Map.png" )
-    screen = pygame.display.set_mode((width, height))
-    pygame.display.set_caption('Query')
-    screen.fill(background_colour)
-    screen.blit(bg, (0, 0))
-    pygame.display.flip()
-    # Set background to white
-    screen.fill((255,255,255))
-    # Refresh screen
-    running = True
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                lat,lon = pygame.mouse.get_pos()
-                point= mercator_projection((lon,lat))
-                test = mh.get_features_near_me('volcanos',point,1000)
-                print(test)
-
-
-
-
-
-    pygame.display.flip()
+                pygame.display.flip()
+                mouse_click = False

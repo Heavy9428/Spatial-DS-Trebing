@@ -1,4 +1,5 @@
-import os,sys
+import os
+import sys
 import math
 from pymongo import MongoClient
 import pygame
@@ -9,8 +10,26 @@ from math import radians, cos, sin, asin, sqrt
 class mongoHelper(object):
     def __init__(self):
         self.client = MongoClient()
-
-
+    def get_doc_by_keyword(self, collection, field_name, search_key, like=True):
+        """
+        Finds "documents" with some keyword in some field.
+        Pams:
+        collection_name: e.g airports or meteors etc.
+        field_name: key name of the field to search. e.g. 'place_id' or 'magnitude' 
+        search_key: The radius in miles from the center of a sphere (defined by the point passed in)
+        Usage:
+        mh = mongoHelper()
+        feature_list = mh.get_doc_by_keyword('earthquakes','properties.type','shakemap')
+        # Returns all earthquakes that have the word 'shakemap' somewhere in the 'type' field
+        """
+        if like:
+            # This finds the records in which the field just "contains" the search_key
+            res = self.client['world_data'][collection].find(({field_name: {'$regex': ".*" + search_key + ".*"}}))
+        else:
+            # This finds the records in which the field is equal to the search_key
+            res = self.client['world_data'][collection].find({field_name: search_key})
+        return self._make_result_list(res)
+    
     def get_features_near_me(self,collection,point,radius,earth_radius=3963.2): #km = 6371
         """
         Finds "features" within some radius of a given point.
@@ -31,59 +50,6 @@ class mongoHelper(object):
         
         return self._make_result_list(res)
 
-    def get_doc_by_keyword(self,collection,field_name,search_key,like=True):
-        """
-        Finds "documents" with some keyword in some field.
-        Params:
-            collection_name: e.g airports or meteors etc.
-            field_name: key name of the field to search. e.g. 'place_id' or 'magnitude' 
-            search_key: The radius in miles from the center of a sphere (defined by the point passed in)
-        Usage:
-            mh = mongoHelper()
-            feature_list = mh.get_doc_by_keyword('earthquakes','properties.type','shakemap')
-            # Returns all earthquakes that have the word 'shakemap' somewhere in the 'type' field
-        """
-        if like:
-            # This finds the records in which the field just "contains" the search_key
-            res = self.client['world_data'][collection].find(({field_name : {'$regex' : ".*"+search_key+".*"}}))
-        else:
-            # This finds the records in which the field is equal to the search_key
-            res = self.client['world_data'][collection].find({field_name : search_key})
-
-        return self._make_result_list(res)
-
-
-    def get_feature_in_poly(self,collection,poly):
-        """
-        Get features that are "in" a polygon
-        Params:
-            collection_name: e.g airports or meteors etc.
-            poly: geojson polygon
-        Usage:
-            mh = mongoHelper()
-            feature_list = mh.get_feature_in_poly('airports',country['coordinates'])
-            # Returns all airports in the given country polygon.
-        """
-        res = self.client['world_data'][collection].find( { 'geometry' : { '$geoWithin' : { '$geometry' : {'type': "Polygon", 'coordinates': poly }} } })
-
-        print(dir(res))
-        print(res.count())
-        sys.exit()
-        return self._make_result_list(res)
-
-    def get_poly_by_point(self,collection,point):
-        """
-        Get a polygon that a point is within
-        Params:
-            collection_name: e.g airports or meteors etc.
-            point: geojson point
-        Usage:
-            mh = mongoHelper()
-            feature_list = mh.get_poly_by_point('countries',[44.2968750,24.6669864])
-            # Returns the country that point([44.2968750,24.6669864]) is within (Saudi Arabia)
-        """
-        return self.client['world_data'][collection].find_one({'geometry':{'$geoIntersects':{'$geometry':{ "type" : "Point","coordinates" : point }}}})
-
     def _make_result_list(self,res):
         """
         private method to turn a pymongo result into a list
@@ -91,225 +57,151 @@ class mongoHelper(object):
         res_list = []
         for r in res:
             res_list.append(r)
-
         return res_list
 
-    def get_state_poly(self,state):
+
+
+    #Had to swith because geo json does lon lat
+    def calculate_initial_compass_bearing(self,pointA, pointB):
         """
-        Send in a state name (e.g. Texas) or code (e.g. tx) and it returns the geometry
+        Calculates the bearing between two points.
+
+        The formulae used is the following:
+        θ = atan2(sin(Δlong).cos(lat2),
+        cos(lat1).sin(lat2) − sin(lat1).cos(lat2).cos(Δlong))
+
+        :Parameters:
+      - `pointA: The tuple representing the latitude/longitude for the
+        first point. Latitude and longitude must be in decimal degrees
+      - `pointB: The tuple representing the latitude/longitude for the
+        second point. Latitude and longitude must be in decimal degrees
+
+        :Returns:
+        The bearing in degrees
+
+        :Returns Type:
+        float
         """
-        state = state.lower()
-        if len(state) == 2:
-            field = 'properties.code'
-        else:
-            state = state.capitalize()
-            field = 'properties.name'
+        if (type(pointA) != tuple) or (type(pointB) != tuple):
+            raise TypeError("Only tuples are supported as arguments")
 
-        state_poly = self.client['world_data']['states'].find_one({field : state})
-        return state_poly['geometry']
+        lat1 = math.radians(pointA[0])
+        lat2 = math.radians(pointB[0])
 
-    def get_country_poly(self,key):
-        """
-        Send in a country name (e.g. Belarus) or code (e.g. BLR) and it returns the geometry
-        """
-        if len(key) == 3:
-            country_poly = self.client['world_data']['countries'].find_one({'properties.ISO_A3' : key})
-        return country_poly['geometry']
+        diffLong = math.radians(pointB[1] - pointA[1])
 
-    def _haversine(self,lon1, lat1, lon2, lat2):
-        """
-        Calculate the great circle distance between two points 
-        on the earth (specified in decimal degrees)
-        """
-        # convert decimal degrees to radians 
-        lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+        x = math.sin(diffLong) * math.cos(lat2)
+        y = math.cos(lat1) * math.sin(lat2) - (math.sin(lat1)* math.cos(lat2) * math.cos(diffLong))
 
-        # haversine formula 
-        dlon = lon2 - lon1 
-        dlat = lat2 - lat1 
-        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-        c = 2 * asin(sqrt(a)) 
-        r = 3956 # Radius of earth in kilometers. Use 6371 for km
-        return c * r
+        initial_bearing = math.atan2(x, y)
 
-def run_tests():
-    """
-    Ok, not really "tests" but mostly just exmaples....
-    """
-    mh = mongoHelper()
+        # Now we have the initial bearing but math.atan2 return values
+        # from -180° to + 180° which is not what we want for a compass bearing
+        # The solution is to normalize the initial bearing as shown below
+        initial_bearing = math.degrees(initial_bearing)
+        compass_bearing = (initial_bearing + 360) % 360
 
-    print("Getting airports near within 200 miles of: (-98.5034180, 33.9382331)")
-    res = mh.get_features_near_me('airports',(-98.5034180, 33.9382331),200)
-    print("Found %d airports" % len(res))
-    print("")
-
-    print("Getting countries that have 'High income' in the INCOME_GRP field.")
-    res = mh.get_doc_by_keyword('countries','properties.INCOME_GRP','High income')
-    print("Found %d countries" % len(res))
-    print("")
-
-    print("Getting earthquakes that had a magnitude of 5.5 (not a partial match like above), and don't pass in 5.5 as a string!")
-    res = mh.get_doc_by_keyword('earthquakes','properties.mag',5.5,False)
-    print("Found %d earthquakes" % len(res))
-    print("")
-
-    print("Getting a state polygon.")
-    state = mh.get_state_poly('co')
-    print("Found %d polygon in the result." % len(state['coordinates']))
-    print("")
-
-############################################
-# Not 100% for those below. Going for beer, will work again tomorrow.
-
-    print("Getting all airports within the state poly from the previous query.")
-    res = mh.get_feature_in_poly('airports',state['coordinates'])
-    print("Found %d airports in the polygon." % len(res))
-    print("")
-   
-    country = mh.get_country_poly('DEU')
-
-    print("Getting all airports within the country poly from the previous query.")
-    res = mh.get_feature_in_poly('airports',country['coordinates'])
-    print("Found %d airports in the polygon." % len(res))
-    print("")
-
-    res = mh.get_feature_in_poly('airports',country['coordinates'])
-    print(len(res))
-
-    res = mh.get_poly_by_point('countries',[44.2968750,24.6669864])
-    print(res)
-
-
-def mercator_projection(latlng,zoom=0,tile_size=256):
-    x = (latlng[0] + 180) / 360 * tile_size
-    y = ((1 - math.log(math.tan(latlng[1] * math.pi / 180) + 1 / math.cos(latlng[1] * math.pi / 180)) / math.pi) / 2 * pow(2, 0)) * tile_size
-   
-    return (x,y)
-
-def mercX(lon):
-    """
-    Mercator projection from longitude to X coord
-    """
-    zoom = 1.0
-    lon = math.radians(lon)
-    a = (256.0 / math.pi) * pow(2.0, zoom)
-    b = lon + math.pi
-    return int(a * b)
-
-
-def mercY(lat):
-    """
-    Mercator projection from latitude to Y coord
-    """
-    zoom = 1.0
-    lat = math.radians(lat)
-    a = (256.0 / math.pi) * pow(2.0, zoom)
-    b = math.tan(math.pi / 4 + lat / 2)
-    c = math.pi - math.log(b)
-    return int(a * c)
-
-def adjust_location_coords(extremes,points,width,height):
-    """
-    Adjust your point data to fit in the screen. 
-    Input:
-        extremes: dictionary with all maxes and mins
-        points: list of points
-        width: width of screen to plot to
-        height: height of screen to plot to
-    """
-    maxx = float(extremes['max_x']) # The max coords from bounding rectangles
-    minx = float(extremes['min_x'])
-    maxy = float(extremes['max_y'])
-    miny = float(extremes['min_y'])
-    deltax = float(maxx) - float(minx)
-    deltay = float(maxy) - float(miny)
-
-    adjusted = []
-
-    for p in points:
-        x,y = p
-        x = float(x)
-        y = float(y)
-        xprime = (x - minx) / deltax         # val (0,1)
-        yprime = ((y - miny) / deltay) # val (0,1)
-        adjx = int(xprime*width)
-        adjy = int(yprime*height)
-        adjusted.append((adjx,adjy))
-    return adjusted
-
+        return compass_bearing
 
 if __name__=='__main__':
+
+    ap_Visited=[]
+    updated_list =[]
+    new_ap=[]
+    ap_lvl_list =[]
+    ap_lvl_list_secondary=[]
+
     DIRPATH = os.path.dirname(os.path.realpath(__file__))
     mh = mongoHelper()
-    (width, height) = (1024,512)
-    background_colour = (255,255,255)
-    pygame.init()
-    bg=pygame.image.load(DIRPATH +"\\World Map.png" )
-    screen = pygame.display.set_mode((width, height))
-    pygame.display.set_caption('Query')
-    screen.fill(background_colour)
-    screen.blit(bg, (0, 0))
-    pygame.display.flip()
-    # Refresh screen
-    '''Start = sys.argv[1]
-    End =sys.argv[2]
-    Miles = sys.argv[3]'''
-    Start = 'DFW'
-    Miles = 500
-    start = mh.get_doc_by_keyword('airports','properties.ap_iata',Start)
-    lat = start[0]['geometry']['coordinates'][0]#what the fuck is this shit i was stuck on this for hours
-    lon = start[0]['geometry']['coordinates'][1]#basically everything is in one big list at [0] so you have to go through this shit
-    lat = float(lat)
-    lon = float(lon)
-    point = lat,lon #this is the lat and lon for DFW
-
-    #now we get all the shit that is close to us lets say 500 miles
-    near = mh.get_features_near_me('earthquakes',point,Miles)
-    near1 = mh.get_features_near_me('volcanos',point,Miles)
-    closest_ap = mh.get_features_near_me('airports',point,Miles)
-
-    points=[]
-    allx=[]
-    ally=[]
-    for x in range(len(near)):
-        lon=near[x]['geometry']['coordinates'][0]
-        lat=near[x]['geometry']['coordinates'][1]
-        x = mercX(lon)
-        y = mercY(lat)
-        allx.append(x)
-        ally.append(y)
-        point = (x,y)
-        points.append(point)
-    extremes = {}
-    extremes['max_x'] = max(allx)
-    extremes['min_x'] = min(allx)
-    extremes['max_y'] = max(ally)
-    extremes['min_y'] = min(ally)
-    screen_width = 1024
-    screen_height = 512
-    point = adjust_location_coords(extremes,points,screen_width,screen_height)
+    Current_airport = sys.argv[1]
+    End = sys.argv[2]
+    Distance = int(sys.argv[3])
 
 
+    Current_airport = mh.get_doc_by_keyword('airports','properties.ap_iata',Current_airport)
+    End = mh.get_doc_by_keyword('airports','properties.ap_iata',End)
 
-    for y in range(len(near1)):
-        print(near1[y]['properties']['Name'])
-    
-    for z in range(len(closest_ap)):
-        print(closest_ap[z]['properties']['ap_name'])
+    #gets inital airport and adds it to the list 
+    #so it is not found again
+    current= Current_airport[0]['properties']['ap_iata']
+    current_lon = Current_airport[0]['geometry']['coordinates'][0] 
+    current_lat = Current_airport[0]['geometry']['coordinates'][1] 
 
-    
+    End_airport = End[0]['properties']['ap_iata']
+    End_lon = End[0]['geometry']['coordinates'][0]
+    End_lat = End[0]['geometry']['coordinates'][1]
 
-    
+    current_lon = float(current_lon)
+    current_lat = float(current_lat)
+    current_point = current_lon,current_lat
+
+    End_lon = float(End_lon)
+    End_lat = float(End_lat)
+    End_Point = End_lon , End_lat
+    direction = mh.calculate_initial_compass_bearing(current_point,End_Point) # calculate the end point to find direction?
+
+    while current != End_airport:
+
+        Current_airport = mh.get_doc_by_keyword('airports','properties.ap_iata',current)
+        current_lon = Current_airport[0]['geometry']['coordinates'][0] 
+        current_lat = Current_airport[0]['geometry']['coordinates'][1] 
+        current_lon = float(current_lon)
+        current_lat = float(current_lat)
+        current_point = current_lon,current_lat
+        ap_Visited.append(Current_airport[0])
+        #gets all the airports within 500 mile -radius
+        Other_Airports = mh.get_features_near_me('airports',current_point,Distance)
+
+        #find the next airport
+        for x in range(len(Other_Airports)):
+            if Other_Airports[x]['properties']['ap_iata'] != current:
+                updated_list.append(Other_Airports[x])
+            else:
+                pass
+
+        for z in range(len(updated_list)):
+            Other_AP_lon = updated_list[z]['geometry']['coordinates'][0] 
+            Other_Ap_lat = updated_list[z]['geometry']['coordinates'][1]
+            Other_AP_lon = float(Other_AP_lon)
+            Other_Ap_lat = float(Other_Ap_lat)
+            Other_AP_Point = Other_AP_lon,Other_Ap_lat
+            #print(Other_Airports[x]['properties']['ap_iata'])
+            travel_path = mh.calculate_initial_compass_bearing(current_point,Other_AP_Point)
+            #print(travel_path)
+            if direction > travel_path:
+                new_ap.append(updated_list[z])
+            else: #thhink this is messing up
+                pass
+
+        for u in range(len(new_ap)):
+            ap_lvl = new_ap[u]['properties']['ap_level']
+            if int(ap_lvl) == 1:
+                ap_lvl_list.append(new_ap[u])
+            else:
+                ap_lvl_list_secondary.append(new_ap[u])
 
 
-    #now we need to look for a ait port that is 500 miles away
-    running = True
-    while running:
-        for p in points:
-            pygame.draw.circle(screen, (255,165,0), p, 1,0)
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            #if event.type == pygame.MOUSEBUTTONDOWN:
-        pygame.display.flip()
-    
+
+       #find the highest elevation
+        if (len(ap_lvl_list)) != 0:
+            if (len(ap_lvl_list)) <1:
+                for g in range(len(ap_lvl_list)):
+                    Current_airport = min(ap_lvl_list[g]['properties']['elevation'])
+            else:
+                Previous_airport = Current_airport
+                current = ap_lvl_list[0]['properties']['ap_iata']
+
+
+        if(len(ap_lvl_list)) == 0:
+
+            if(len(ap_lvl_list_secondary)) < 1:
+                for p in range(len(ap_lvl_list_secondary)):
+                    Current_airport=min(ap_lvl_list_secondary[p]['properties']['elevation'])
+            else:
+                current = ap_lvl_list_secondary[0]['properties']['ap_iata']
+
+        ap_lvl_list.clear()
+        ap_lvl_list_secondary.clear()
+        updated_list.clear()
+        new_ap.clear()
+        print(current)

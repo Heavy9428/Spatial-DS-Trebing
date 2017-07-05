@@ -74,14 +74,12 @@ def adjust_location_coords(extremes,points,width,height):
 
     for p in points:
         x,y = p
-        x = float(x)
-        y = float(y)
-        xprime = (x - minX) / deltax    # val (0,1)
-        yprime = ((y - minY) / deltay)  # val (0,1)
-        adjx = int(xprime*width)
-        adjy = int(yprime*height)
-        adjusted.append((adjx,adjy))
+        adjx = (x / 1024 * width)
+        adjy = (y / 512 * height) - (height/2)
+        adjusted.append((int(adjx),int(adjy)))
+
     return adjusted
+
 
 def flatten_country_polygons(geometry):
     adjusted_polys = []
@@ -96,7 +94,7 @@ def flatten_country_polygons(geometry):
                 adjusted_polys.append(newp)
         return adjusted_polys
 
-def change_points(data,width,heigh):
+def change_points(data,width,height):
     #code taken and altered from program 4
     allx = []
     ally = []
@@ -104,9 +102,9 @@ def change_points(data,width,heigh):
 
     # Loop through converting lat/lon to x/y and saving extreme values. 
     for quake in data:
-        #st = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
-        lon = quake[0]
-        lat = quake[1]
+        
+        lon = quake['geometry']['coordinates'][0]
+        lat = quake['geometry']['coordinates'][1]
         x,y = (mercX(lon),mercY(lat))
         allx.append(x)
         ally.append(y)
@@ -114,9 +112,9 @@ def change_points(data,width,heigh):
 
     # Create dictionary to send to adjust method
     extremes = {}
-    extremes['maxX'] = max(allx)
-    extremes['minX'] = min(allx)
-    extremes['maxY'] = max(ally)
-    extremes['minY'] = min(ally)
+    extremes['maxX'] = width
+    extremes['minX'] = 0 
+    extremes['maxY'] = height
+    extremes['minY'] = 0
 
     return extremes,points
